@@ -1,0 +1,5 @@
+{
+  "name": "Aura Tic-Tac-Toe",
+  "description": "A visually stunning Tic-Tac-Toe web application with light/dark themes, engaging animations, and a challenging AI opponent. It features a glassmorphism UI and is designed to showcase a modern, production-ready frontend experience.",
+  "requestFramePermissions": []
+}
