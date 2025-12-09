@@ -1,33 +1,27 @@
-
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Declare process to fix TS2580: Cannot find name 'process'
-declare const process: any;
-
-// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current working directory.
-  // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
-  const env = loadEnv(mode, process.cwd(), '');
+  const env = loadEnv(mode, process.cwd(), '')
+
+  const BACKEND_URL =
+    env.VITE_API_URL || 'http://localhost:3000'
 
   return {
-    plugins: [
-      react(),
-    ],
-    // API_KEY is now handled securely on the backend
+    plugins: [react()],
     server: {
       port: 5173,
       proxy: {
         '/api': {
-          target: 'http://localhost:3000',
+          target: BACKEND_URL,
           changeOrigin: true,
-          secure: false, 
+          secure: true,
         },
         '/socket.io': {
-          target: 'http://localhost:3000',
+          target: BACKEND_URL,
           ws: true,
-          secure: false,
+          changeOrigin: true,
+          secure: true,
         }
       }
     }
