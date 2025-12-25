@@ -1,0 +1,258 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --------------------------------------------------------
+// USER & PROFILE
+// --------------------------------------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  
+  // Profile
+  displayName   String
+  avatar        String    @default("avatar-1")
+  theme         String    @default("dark")
+  bio           String?
+  customStatus  String?
+  friendCode    String    @unique // 6-char code for adding friends
+  
+  // Progression & Stats
+  elo           Int       @default(1000)
+  wins          Int       @default(0)
+  losses        Int       @default(0)
+  draws         Int       @default(0)
+  xp            Int       @default(0)
+  level         Int       @default(1)
+  coins         Int       @default(0)
+  winStreak     Int       @default(0)
+  
+  // Inventory & Customization
+  inventory       String[] // Array of item IDs (skins, themes, avatars, powerups)
+  equippedTheme   String   @default("theme-default")
+  equippedSkin    String   @default("skin-classic")
+  badges          String[] // Array of badge IDs
+  showcasedBadges String[] // Badges displayed on profile
+
+  // Security
+  mfaEnabled       Boolean  @default(false)
+  mfaSecret        String?  // Encrypted secret
+  emailVerified     Boolean  @default(false)
+  verificationToken String?  @unique
+  
+  // Quest & Campaign Data
+  // Stores: { lastGenerated: string, quests: Quest[], rerollsRemaining: int, pendingGifts: [] }
+  questData        Json?    
+  campaignLevel    Int      @default(1)
+  // Stores: { [levelId]: { stars: int } }
+  campaignProgress Json?
+
+  // Social Relations
+  clanId           String?
+  clan             Clan?    @relation(fields: [clanId], references: [id])
+  
+  // Friends (Self-referential many-to-many via Friendship model)
+  sentRequests     Friendship[] @relation("Sender")
+  receivedRequests Friendship[] @relation("Receiver")
+
+  // Chat & Notifications
+  notifications    Notification[]
+  conversations    Conversation[] @relation("UserConversations")
+  messagesSent     ChatMessage[]  @relation("Sender")
+  
+  // Game History
+  matches          Match[]
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// --------------------------------------------------------
+// SOCIAL: CLANS & FRIENDS
+// --------------------------------------------------------
+
+model Clan {
+  id        String   @id @default(cuid())
+  name      String
+  tag       String   @unique // 4-char tag
+  ownerId   String
+  members   User[]
+  createdAt DateTime @default(now())
+}
+
+model Friendship {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  status     String   @default("PENDING") // PENDING, ACCEPTED
+  
+  sender     User     @relation("Sender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User     @relation("Receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  
+  createdAt  DateTime @default(now())
+
+  // Ensure unique pair of users
+  @@unique([senderId, receiverId])
+}
+
+// --------------------------------------------------------
+// CHAT & MESSAGING SYSTEM
+// --------------------------------------------------------
+
+model Conversation {
+  id           String        @id @default(cuid())
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // NEW: deterministic key per user pair
+  pairKey      String        @unique
+  
+  // Participants (Many-to-Many implicit)
+  participants User[]        @relation("UserConversations")
+  messages     ChatMessage[]
+}
+
+model ChatMessage {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  senderId       String
+  sender         User         @relation("Sender", fields: [senderId], references: [id], onDelete: Cascade)
+  
+  text           String
+  type           String       @default("user") // "user" or "system"
+  channel        String       @default("dm")   // "dm", "lobby", "game" (though game chat is usually ephemeral in ActiveMatch)
+  
+  // Rich Content
+  stickerId      String?
+  replyTo        Json?        // Snapshot of the message being replied to
+  replayData     Json?        // Snapshot of a shared match replay
+  giftData       Json?        // Snapshot of gift amount
+  
+  // Social Features
+  // Stores: { [emoji]: [userId1, userId2] }
+  reactions      Json?
+  
+  // Read Receipts
+  // Stores: { [userId]: timestamp } - Critical for unread counts
+  readBy         Json?        
+  
+  deleted        Boolean      @default(false)
+  editedAt       DateTime?
+  timestamp      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@index([timestamp])
+}
+
+// --------------------------------------------------------
+// NOTIFICATIONS
+// --------------------------------------------------------
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type      String   // "chat", "friend_request", "system", "gift", "match_result"
+  title     String
+  message   String
+  data      Json?    // Flexible payload (senderId, matchId, amount, etc.)
+  read      Boolean  @default(false)
+  
+  timestamp DateTime @default(now())
+
+  @@index([userId])
+  @@index([read])
+}
+
+// --------------------------------------------------------
+// LIVE GAMEPLAY (LOBBY / ACTIVE MATCH)
+// --------------------------------------------------------
+
+model ActiveMatch {
+  id             String   @id // Room ID (Short code)
+  
+  // Players
+  hostId         String
+  playerXId      String
+  playerOId      String?  // Nullable until second player joins
+  
+  // Game State
+  status         String   // "waiting", "confirming_wager", "playing", "finished"
+  currentPlayer  String   // "X" or "O"
+  board          Json     // Array of board state
+  moves          Json     // Array of move history objects
+  chat           Json     // Ephemeral in-game chat log
+  gameSettings   Json     // Board size, win length, variant, etc.
+  
+  // --- Wager System ---
+  anteAmount     Int      @default(0) // Cost to enter
+  pot            Int      @default(0) // Total prize pool
+  playerXConfirmed Boolean @default(false) // Locked in wager?
+  playerOConfirmed Boolean @default(false) // Locked in wager?
+  doubleDownOffering String? // "X" or "O" offering a double down
+  
+  // --- Timers (Blitz) ---
+  lastMoveTime   DateTime @default(now())
+  timeRemainingX Int?     // Milliseconds
+  timeRemainingO Int?     // Milliseconds
+  
+  // Rematch Flags
+  playerXRematch Boolean  @default(false)
+  playerORematch Boolean  @default(false)
+  
+  isPaused       Boolean  @default(false)
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+// --------------------------------------------------------
+// ARCHIVED HISTORY
+// --------------------------------------------------------
+
+model Match {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  opponentName String?
+  winner       String?  // "X", "O", "draw"
+  playerRole   String   // "X" or "O" (The role the userId played)
+  
+  gameMode     String   // "ONLINE", "LOCAL", "AI", "CAMPAIGN"
+  winReason    String   @default("standard") // "standard", "timeout", "forfeit", "disconnect"
+  
+  gameSettings Json
+  initialBoard Json
+  
+  moves        Move[]
+  
+  date         DateTime @default(now())
+
+  @@index([userId])
+  @@index([date])
+}
+
+model Move {
+  id         String @id @default(cuid())
+  matchId    String
+  match      Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  
+  player     String // "X" or "O"
+  index      Int
+  moveNumber Int
+  
+  @@index([matchId])
+}
