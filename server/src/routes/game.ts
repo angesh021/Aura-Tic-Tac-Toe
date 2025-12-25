@@ -3,6 +3,8 @@
 
 
 
+
+
 import { Router } from 'express';
 import crypto from 'crypto';
 import { prisma } from '../db';
@@ -472,7 +474,7 @@ router.get('/leaderboard', async (req: any, res: any) => {
             select: { id: true, displayName: true, avatar: true, elo: true, coins: true, badges: true, clan: true, questData: true, customStatus: true }
         });
         // Sanitize questData to public fields
-        const sanitized = users.map(u => ({ ...u, questData: getPublicQuestData(u) }));
+        const sanitized = users.map((u: any) => ({ ...u, questData: getPublicQuestData(u) }));
         res.json(sanitized);
     } catch (e) {
         res.status(500).json({ message: "Fetch leaderboard failed" });
@@ -774,7 +776,7 @@ router.get('/chats', authMiddleware, async (req: any, res: any) => {
         });
 
         // Map to simpler format
-        const result = await Promise.all(conversations.map(async c => {
+        const result = await Promise.all(conversations.map(async (c: any) => {
             const partner = c.participants[0];
             const lastMsg = c.messages[0];
             
